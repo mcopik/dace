@@ -464,9 +464,10 @@ def make_transients_persistent(sdfg: SDFG,
                     pass
 
                 # Only convert arrays with top-level access nodes
-                
-                parent_map, pmapstate = xfh.get_parent_map(state, dnode)
+                # The function returns a tuple of (map, state) or a None - we need to check before unpacking
+                parent_map = xfh.get_parent_map(state, dnode)
                 if parent_map is not None:
+                    parent_map, pmapstate = parent_map
                     print(parent_map.map.schedule)
                     if device == dtypes.DeviceType.CPU:
                         print(parent_map.map.schedule)
