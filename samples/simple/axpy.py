@@ -12,9 +12,12 @@ N = dace.symbol('N')
 
 # Define the data-centric program with type hints
 # (without this step, Just-In-Time compilation is triggered every call)
-@dace.program
-def axpy(a: dace.float64, x: dace.float64[N], y: dace.float64[N]):
-    return a * x + y
+@dace.program(auto_optimize=True, device=dace.dtypes.DeviceType.GPU)
+def axpy(x: dace.float64[N], y: dace.float64[N]):
+    result = dace.ndarray([N], dace.float64)
+    for i in dace.map[0:N] @ dace.ScheduleType.GPU_Device:
+        result[i] = x[i] + y[i]
+    return result
 
 
 if __name__ == "__main__":
@@ -28,7 +31,7 @@ if __name__ == "__main__":
     y = np.random.rand(args.N)
 
     # Call the program (the value of N is inferred by dace automatically)
-    z = axpy(a, x, y)
+    z = axpy(x, y)
 
     # Check result
     expected = a * x + y

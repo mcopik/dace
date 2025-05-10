@@ -5,6 +5,9 @@ import argparse
 import dace
 import numpy as np
 
+from dace.transformation.interstate import WormholeTransformSDFG
+from dace.transformation.dataflow import MapTiling
+
 # Define a symbol so that the vectors could have arbitrary sizes and compile the code once
 # (this step is not necessary for arrays with known sizes)
 N = dace.symbol("N")
@@ -14,7 +17,7 @@ N = dace.symbol("N")
 # (without this step, Just-In-Time compilation is triggered every call)
 # @dace.program(auto_optimize=True, device=dace.dtypes.DeviceType.GPU)
 @dace.program(
-    # auto_optimize=True,
+    auto_optimize=False,
     device=dace.dtypes.DeviceType.WORMHOLE,
     regenerate_code=True,
     recompile=True,
@@ -37,8 +40,14 @@ if __name__ == "__main__":
     y = np.random.rand(args.N)
 
     # Call the p rogram (the value of N is inferred by dace automatically)
-    z = axpy(x, y)
+    sdfg = axpy.to_sdfg()
+    sdfg.save("wormhole0.sdfg")
+    sdfg.apply_transformations(WormholeTransformSDFG)
+    sdfg.save("wormhole1.sdfg")
+    sdfg.apply_transformations(MapTiling)
+    sdfg.save("wormhole2.sdfg")
+    # z = axpy(x, y)
 
     # Check result
-    expected = x + y
-    print("Difference:", np.linalg.norm(z - expected))
+    # expected = x + y
+    # print("Difference:", np.linalg.norm(z - expected))
