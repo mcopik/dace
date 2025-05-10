@@ -19,6 +19,7 @@ class DeviceType(aenum.AutoNumberEnum):
     GPU = ()  #: GPU (AMD or NVIDIA)
     FPGA = ()  #: FPGA (Intel or Xilinx)
     Snitch = ()  #: Compute Cluster (RISC-V)
+    WORMHOLE = ()  #: Compute Cluster (RISC-V)
 
 
 @undefined_safe_enum
