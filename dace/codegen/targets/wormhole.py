@@ -35,7 +35,7 @@ from dace.codegen.dispatcher import DefinedType
 # Other imports
 import itertools
 
-WORMHOLE_STORAGE_TYPES = [dace.StorageType.Wormhole_SRAM]
+WORMHOLE_STORAGE_TYPES = [dace.StorageType.Wormhole_DRAM]
 
 
 @registry.autoregister_params(name="wormhole")
@@ -76,7 +76,7 @@ class WormholeCodeGen(TargetCodeGenerator):
             dace.StorageType.Register,
         ]
         for src_storage, dst_storage in itertools.product(
-            [dace.StorageType.Wormhole_SRAM], cpu_storages
+            [dace.StorageType.Wormhole_DRAM], cpu_storages
         ):
             self._dispatcher.register_copy_dispatcher(
                 src_storage, dst_storage, None, self
@@ -84,6 +84,20 @@ class WormholeCodeGen(TargetCodeGenerator):
             self._dispatcher.register_copy_dispatcher(
                 dst_storage, src_storage, None, self
             )
+
+        for src_storage, dst_storage in itertools.product(
+            [dace.StorageType.Wormhole_DRAM], [dace.StorageType.Wormhole_SRAM]
+        ):
+            self._dispatcher.register_copy_dispatcher(
+                src_storage, dst_storage, None, self
+            )
+            self._dispatcher.register_copy_dispatcher(
+                dst_storage, src_storage, None, self
+            )
+
+    def preprocess(self, sdfg: SDFG) -> None:
+        self._frame.statestruct.append("tt::tt_metal::Device*;")
+        self._frame.statestruct.append("tt::tt_metal::Program;")
 
     def generate_scope(
         self,
