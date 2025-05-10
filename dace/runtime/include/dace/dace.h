@@ -41,6 +41,14 @@
 #include "intel_fpga/host.h"
 #endif
 
+#ifdef DACE_WORMHOLE
+#include "wormhole/host.h"
+#else
+namespace dace { namespace wormhole {
+struct Context;
+}}
+#endif
+
 #include "fpga_common.h"
 
 #endif  // __DACE_RUNTIME_H

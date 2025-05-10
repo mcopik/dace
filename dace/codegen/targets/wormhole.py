@@ -15,6 +15,7 @@ from dace.sdfg import (
     NodeNotExpandedError,
     dynamic_map_inputs,
 )
+from six import StringIO
 from typing import Union
 from dace.codegen.codeobject import CodeObject
 from dace.codegen.prettycode import CodeIOStream
@@ -22,7 +23,7 @@ from dace.codegen.prettycode import CodeIOStream
 # Code generator imports and helpers
 from dace.codegen.targets.framecode import DaCeCodeGenerator
 from dace.codegen.targets.target import TargetCodeGenerator
-from dace.codegen.targets.cpp import cpp_array_expr, cpp_offset_expr
+from dace.codegen.targets.cpp import mangle_dace_state_struct_name
 from dace.codegen.targets import cpp
 from dace.codegen.targets.cpp import sym2cpp
 
@@ -35,7 +36,7 @@ from dace.codegen.dispatcher import DefinedType
 # Other imports
 import itertools
 
-WORMHOLE_STORAGE_TYPES = [dace.StorageType.Wormhole_DRAM]
+WORMHOLE_STORAGE_TYPES = [dace.StorageType.Wormhole_DRAM, dace.StorageType.Wormhole_SRAM]
 
 
 @registry.autoregister_params(name="wormhole")
@@ -64,12 +65,6 @@ class WormholeCodeGen(TargetCodeGenerator):
 
         self._cpu_codegen = self._dispatcher.get_generic_node_dispatcher()
 
-        # We need it to get all kernels with Wormhole schedule
-        # Each one becomes a separate kernel
-        # self._dispatcher.register_map_dispatcher(
-        #    [dtypes.ScheduleType.Wormhole_Kernel], self
-        # )
-
         cpu_storages = [
             dace.StorageType.CPU_Pinned,
             dace.StorageType.CPU_Heap,
@@ -95,9 +90,20 @@ class WormholeCodeGen(TargetCodeGenerator):
                 dst_storage, src_storage, None, self
             )
 
+        # FIXME: temporary fix
+        for src_storage, dst_storage in itertools.product(
+            [dace.StorageType.Register], [dace.StorageType.Wormhole_SRAM]
+        ):
+            self._dispatcher.register_copy_dispatcher(
+                src_storage, dst_storage, None, self
+            )
+            self._dispatcher.register_copy_dispatcher(
+                dst_storage, src_storage, None, self
+            )
+
+
     def preprocess(self, sdfg: SDFG) -> None:
-        self._frame.statestruct.append("tt::tt_metal::Device*;")
-        self._frame.statestruct.append("tt::tt_metal::Program;")
+        self._frame.statestruct.append("dace::wormhole::Context* wormhole_context;")
 
     def generate_scope(
         self,
@@ -120,25 +126,6 @@ class WormholeCodeGen(TargetCodeGenerator):
             kernel_name = f"{entry_node.label}_{cfg.cfg_id}"
 
         kernel_stream = CodeIOStream()
-
-        # kernel_stream.write("{", cfg, state_id, entry_node)
-
-        for param, rng in zip(entry_node.map.params, entry_node.map.range):
-            # We use the sym2cpp function from the cpp support functions
-            # to convert symbolic expressions to proper C++
-            begin, end, stride = (sym2cpp(r) for r in rng)
-            end = sym2cpp(rng[1] + 1)
-
-            # Every write is optionally (but recommended to be) tagged with
-            # 1-3 extra arguments, serving as line information to match
-            # SDFG, state, and graph nodes/edges to written code.
-            kernel_stream.write(
-                f"""// Loopy-loop {param}
-            for (int {param} = {begin}; {param} < {end}; {param} += {stride}) {{""",
-                sdfg,
-                state_id,
-                entry_node,
-            )
 
         self.generate_node(
             sdfg, cfg, dfg_scope, state_id, entry_node, function_stream, kernel_stream
@@ -198,27 +185,143 @@ class WormholeCodeGen(TargetCodeGenerator):
             sdfg, cfg, dfg, state_id, node, function_stream, callsite_stream
         )
 
+    def allocate_array(
+        self,
+        sdfg: dace.SDFG,
+        cfg: ControlFlowRegion,
+        dfg: StateSubgraphView,
+        state_id: int,
+        node: nodes.AccessNode,
+        nodedesc: dt.Array,
+        function_stream: CodeIOStream,
+        declaration_stream: CodeIOStream,
+        allocation_stream: CodeIOStream,
+    ):
+
+        ### Based on the hardware, the total size must be 16^2
+        ##assert nodedesc.total_size == 16 * 16
+        ### Majority is detected by the strides of the data
+        ##maj = "row" if nodedesc.strides[-1] == 1 else "col"
+
+        ## Write a fragment based on the storage type
+        # if nodedesc.storage == dace.StorageType.TensorCore_Accumulator:
+        #    ctype = "wmma::fragment<wmma::accumulator, 16, 16, 16, float>"
+        #    declaration_stream.write(f"{ctype} {name};", cfg, state_id, node)
+        # else:
+        #    ctype = "wmma::fragment<wmma::matrix_{mat}, 16, 16, 16, half, wmma::{maj}_major>".format(
+        #        mat=("a" if "A" in nodedesc.storage.name else "b"), maj=maj
+        #    )
+        #    declaration_stream.write(f"{ctype} {name};", cfg, state_id, node)
+
+        ## Add the ctype to defined_vars so that the codegen can properly pass
+        ## fragments to functions as an object reference.
+        name = node.data
+        self._dispatcher.defined_vars.add(
+            name, DefinedType.Object, nodedesc.dtype.ctype
+        )
+
+        result_decl = StringIO()
+        result_alloc = StringIO()
+
+        if nodedesc.storage == dtypes.StorageType.Wormhole_DRAM:
+
+            arrsize = f"{sym2cpp(nodedesc.total_size)} / __state->wormhole_context->tile_size"
+            result_decl.write(f"std::shared_ptr<Buffer> {name};")
+            result_alloc.write(f"{name} = MakeBufferBFP16(__state->wormhole_context->device, {arrsize}, false);")
+
+        declaration_stream.write(result_decl.getvalue(), cfg, state_id, node)
+        allocation_stream.write(result_alloc.getvalue(), cfg, state_id, node)
+
     def get_generated_codeobjects(self):
         host_code = CodeIOStream()
-        host_code.write("""
-#include <tt-metalium/host_api.hpp>
-#include <tt-metalium/device.hpp>
-#include <tt-metalium/kernel_types.hpp>
 
-using namespace tt;
-using namespace tt::tt_metal;
+        globalcode = CodeIOStream()
+        globalcode.write("""
+
+std::shared_ptr<Buffer> MakeBuffer(IDevice* device, uint32_t size, uint32_t page_size, bool sram) {
+    InterleavedBufferConfig config{
+        .device = device,
+        .size = size,
+        .page_size = page_size,
+        .buffer_type = (sram ? BufferType::L1 : BufferType::DRAM)};
+    return CreateBuffer(config);
+}
+
+std::shared_ptr<Buffer> MakeBufferBFP16(IDevice* device, uint32_t n_tiles, bool sram) {
+    constexpr uint32_t tile_size = sizeof(bfloat16) * tt::constants::TILE_WIDTH * tt::constants::TILE_HEIGHT;
+    // For simplicity, all DRAM buffers have page size = tile size.
+    const uint32_t page_tiles = sram ? n_tiles : 1;
+    return MakeBuffer(device, tile_size * n_tiles, page_tiles * tile_size, sram);
+}
+
+CBHandle MakeCircularBuffer(
+    Program& program, const CoreSpec& core, tt::CBIndex cb, uint32_t size, uint32_t page_size, tt::DataFormat format) {
+    CircularBufferConfig cb_src0_config = CircularBufferConfig(size, {{cb, format}}).set_page_size(cb, page_size);
+    return CreateCircularBuffer(program, core, cb_src0_config);
+}
+
+CBHandle MakeCircularBufferBFP16(Program& program, const CoreSpec& core, tt::CBIndex cb, uint32_t n_tiles) {
+    constexpr uint32_t tile_size = sizeof(bfloat16) * tt::constants::TILE_WIDTH * tt::constants::TILE_HEIGHT;
+    return MakeCircularBuffer(program, core, cb, n_tiles * tile_size, tile_size, tt::DataFormat::Float16_b);
+}
 
 """)
         host_code.write("\n\n")
 
-        # FIXME: pass
-        self._frame.generate_fileheader(self._global_sdfg, host_code, "wormhole")
+        fileheader = CodeIOStream()
+        self._frame.generate_fileheader(self._global_sdfg, fileheader, "wormhole")
 
         params_comma = self._global_sdfg.init_signature(
             free_symbols=self._frame.free_symbols(self._global_sdfg)
         )
         if params_comma:
             params_comma = ", " + params_comma
+
+        host_code.write("""
+#include <tt-metalium/bfloat16.hpp>
+#include <tt-metalium/core_coord.hpp>
+#include <tt-metalium/host_api.hpp>
+#include <tt-metalium/device_impl.hpp>
+#include <tt-metalium/work_split.hpp>
+
+#include <cstddef>
+#include <cstdint>
+
+#include <dace/dace.h>
+
+using namespace tt;
+using namespace tt::tt_metal;
+
+{file_header}
+
+DACE_EXPORTED int __dace_init_cuda({sdfg_state_name} *__state{params});
+DACE_EXPORTED int __dace_exit_cuda({sdfg_state_name} *__state);
+
+{other_globalcode}
+
+int __dace_init_wormhole({sdfg_state_name} *__state{params}) {{
+
+    __state->wormhole_context = new dace::wormhole::Context();
+
+    _state->wormhole_context->device = CreateDevice(device_id);
+    _state->wormhole_context->program = CreateProgram();
+
+    _state->wormhole_context->tile_size = tt::constants::TILE_WIDTH * tt::constants::TILE_HEIGHT;
+
+    return 0;
+}}
+
+void __dace_exit_wormhole({sdfg_state_name} *__state) {{
+    CloseDevice(device);
+}}
+
+""".format(
+            params=params_comma,
+            sdfg_state_name=mangle_dace_state_struct_name(self._global_sdfg),
+            other_globalcode=globalcode.getvalue(),
+            file_header=fileheader.getvalue(),
+            sdfg=self._global_sdfg,
+        ))
 
         host_code_obj = CodeObject(
             self._program_name,
@@ -245,41 +348,6 @@ using namespace tt::tt_metal;
 
         return [host_code_obj] + kernel_code_objs
 
-    def allocate_array(
-        self,
-        sdfg: dace.SDFG,
-        cfg: ControlFlowRegion,
-        dfg: StateSubgraphView,
-        state_id: int,
-        node: nodes.AccessNode,
-        nodedesc: dt.Array,
-        function_stream: CodeIOStream,
-        declaration_stream: CodeIOStream,
-        allocation_stream: CodeIOStream,
-    ):
-        # print('alloc_array', name)
-
-        ### Based on the hardware, the total size must be 16^2
-        ##assert nodedesc.total_size == 16 * 16
-        ### Majority is detected by the strides of the data
-        ##maj = "row" if nodedesc.strides[-1] == 1 else "col"
-
-        ## Write a fragment based on the storage type
-        # if nodedesc.storage == dace.StorageType.TensorCore_Accumulator:
-        #    ctype = "wmma::fragment<wmma::accumulator, 16, 16, 16, float>"
-        #    declaration_stream.write(f"{ctype} {name};", cfg, state_id, node)
-        # else:
-        #    ctype = "wmma::fragment<wmma::matrix_{mat}, 16, 16, 16, half, wmma::{maj}_major>".format(
-        #        mat=("a" if "A" in nodedesc.storage.name else "b"), maj=maj
-        #    )
-        #    declaration_stream.write(f"{ctype} {name};", cfg, state_id, node)
-
-        ## Add the ctype to defined_vars so that the codegen can properly pass
-        ## fragments to functions as an object reference.
-        name = node.data
-        self._dispatcher.defined_vars.add(
-            name, DefinedType.Object, nodedesc.dtype.ctype
-        )
 
     def deallocate_array(
         self,
