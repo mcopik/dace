@@ -7,6 +7,7 @@ import numpy as np
 
 from dace.transformation.interstate import WormholeTransformSDFG
 from dace.transformation.dataflow import MapTiling
+from dace.transformation.dataflow import InLocalStorage, OutLocalStorage
 
 # Define a symbol so that the vectors could have arbitrary sizes and compile the code once
 # (this step is not necessary for arrays with known sizes)
@@ -44,8 +45,10 @@ if __name__ == "__main__":
     # sdfg.save("wormhole0.sdfg")
     sdfg.apply_transformations(WormholeTransformSDFG)
     # sdfg.save("wormhole1.sdfg")
-    sdfg.apply_transformations(MapTiling)
+    sdfg.apply_transformations(MapTiling, {"tile_sizes": (128,), "divides_evenly": True})
     # sdfg.save("wormhole2.sdfg")
+    sdfg.apply_transformations_repeated([InLocalStorage, OutLocalStorage])
+    sdfg.save("wormhole3.sdfg")
     sdfg.compile()
     z = sdfg(x, y)
 
