@@ -42,6 +42,7 @@ class StorageType(aenum.AutoNumberEnum):
     Snitch_TCDM = ()  #: Cluster-private memory
     Snitch_L2 = ()  #: External memory
     Snitch_SSR = ()  #: Memory accessed by SSR streamer
+    Wormhole_DRAM = ()
     Wormhole_SRAM = ()  #: Memory accessed by SSR streamer
 
 
@@ -207,7 +208,7 @@ SCOPEDEFAULT_STORAGE = {
     ScheduleType.FPGA_Device: StorageType.FPGA_Global,
     ScheduleType.SVE_Map: StorageType.CPU_Heap,
     ScheduleType.Snitch: StorageType.Snitch_TCDM,
-    ScheduleType.Wormhole_Kernel: ScheduleType.Wormhole_KernelWormhole_SRAM
+    ScheduleType.Wormhole_Kernel: StorageType.Wormhole_DRAM
 }
 
 # Maps from ScheduleType to default ScheduleType for sub-scopes
@@ -229,7 +230,7 @@ SCOPEDEFAULT_SCHEDULE = {
     ScheduleType.SVE_Map: ScheduleType.Sequential,
     ScheduleType.Snitch: ScheduleType.Snitch,
     ScheduleType.Snitch_Multicore: ScheduleType.Snitch_Multicore,
-    ScheduleType.Wormhole_Kernel: ScheduleType.Wormhole_KernelWormhole_SRAM
+    ScheduleType.Wormhole_Kernel: ScheduleType.Wormhole_Kernel
 }
 
 # Maps from StorageType to a preferred ScheduleType for helping determine schedules.
