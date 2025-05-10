@@ -14,7 +14,7 @@ N = dace.symbol("N")
 # (without this step, Just-In-Time compilation is triggered every call)
 # @dace.program(auto_optimize=True, device=dace.dtypes.DeviceType.GPU)
 @dace.program(
-    auto_optimize=True,
+    # auto_optimize=True,
     device=dace.dtypes.DeviceType.WORMHOLE,
     regenerate_code=True,
     recompile=True,
@@ -22,7 +22,7 @@ N = dace.symbol("N")
 def axpy(x: dace.float64[N], y: dace.float64[N]):
     result = dace.ndarray([N], dace.float64)
     for i in dace.map[0:N] @ dace.ScheduleType.Wormhole_Kernel:
-        result[i] = x[i] + y[i]
+        result[i] = np.add(x[i], y[i])
     return result
 
 
