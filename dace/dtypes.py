@@ -211,7 +211,7 @@ SCOPEDEFAULT_STORAGE = {
     ScheduleType.FPGA_Device: StorageType.FPGA_Global,
     ScheduleType.SVE_Map: StorageType.CPU_Heap,
     ScheduleType.Snitch: StorageType.Snitch_TCDM,
-    ScheduleType.Wormhole_Kernel: StorageType.Wormhole_DRAM,
+    ScheduleType.Wormhole_Kernel: StorageType.Wormhole_SRAM,
 }
 
 # Maps from ScheduleType to default ScheduleType for sub-scopes

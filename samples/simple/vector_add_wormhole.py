@@ -40,13 +40,14 @@ if __name__ == "__main__":
     y = np.random.rand(args.N)
 
     # Call the p rogram (the value of N is inferred by dace automatically)
-    # sdfg = axpy.to_sdfg()
+    sdfg = axpy.to_sdfg()
     # sdfg.save("wormhole0.sdfg")
-    # sdfg.apply_transformations(WormholeTransformSDFG)
+    sdfg.apply_transformations(WormholeTransformSDFG)
     # sdfg.save("wormhole1.sdfg")
-    # sdfg.apply_transformations(MapTiling)
+    sdfg.apply_transformations(MapTiling)
     # sdfg.save("wormhole2.sdfg")
-    z = axpy(x, y)
+    sdfg.compile()
+    z = sdfg(x, y)
 
     # Check result
     # expected = x + y
