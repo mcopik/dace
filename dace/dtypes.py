@@ -42,6 +42,7 @@ class StorageType(aenum.AutoNumberEnum):
     Snitch_TCDM = ()  #: Cluster-private memory
     Snitch_L2 = ()  #: External memory
     Snitch_SSR = ()  #: Memory accessed by SSR streamer
+    Wormhole_SRAM = ()  #: Memory accessed by SSR streamer
 
 
 @undefined_safe_enum
@@ -76,6 +77,8 @@ class ScheduleType(aenum.AutoNumberEnum):
     Snitch = ()
     Snitch_Multicore = ()
     FPGA_Multi_Pumped = ()  #: Used for double pumping
+
+    Wormhole_Kernel = ()
 
 
 # A subset of GPU schedule types
@@ -203,7 +206,8 @@ SCOPEDEFAULT_STORAGE = {
     ScheduleType.GPU_ThreadBlock_Dynamic: StorageType.Register,
     ScheduleType.FPGA_Device: StorageType.FPGA_Global,
     ScheduleType.SVE_Map: StorageType.CPU_Heap,
-    ScheduleType.Snitch: StorageType.Snitch_TCDM
+    ScheduleType.Snitch: StorageType.Snitch_TCDM,
+    ScheduleType.Wormhole_Kernel: ScheduleType.Wormhole_KernelWormhole_SRAM
 }
 
 # Maps from ScheduleType to default ScheduleType for sub-scopes
@@ -224,7 +228,8 @@ SCOPEDEFAULT_SCHEDULE = {
     ScheduleType.FPGA_Multi_Pumped: ScheduleType.FPGA_Device,
     ScheduleType.SVE_Map: ScheduleType.Sequential,
     ScheduleType.Snitch: ScheduleType.Snitch,
-    ScheduleType.Snitch_Multicore: ScheduleType.Snitch_Multicore
+    ScheduleType.Snitch_Multicore: ScheduleType.Snitch_Multicore,
+    ScheduleType.Wormhole_Kernel: ScheduleType.Wormhole_KernelWormhole_SRAM
 }
 
 # Maps from StorageType to a preferred ScheduleType for helping determine schedules.
