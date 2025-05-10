@@ -24,11 +24,7 @@ N = dace.symbol("N")
     recompile=True,
 )
 def axpy(x: dace.float64[N], y: dace.float64[N]):
-    result = dace.ndarray([N], dace.float64)
-    for i in dace.map[0:N] @ dace.ScheduleType.Wormhole_Kernel:
-        result[i] = np.add(x[i], y[i])
-    return result
-
+    return x + y
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -48,7 +44,7 @@ if __name__ == "__main__":
     sdfg.apply_transformations(MapTiling, {"tile_sizes": (128,), "divides_evenly": True})
     # sdfg.save("wormhole2.sdfg")
     sdfg.apply_transformations_repeated([InLocalStorage, OutLocalStorage])
-    sdfg.save("wormhole3.sdfg")
+    # sdfg.save("wormhole3.sdfg")
     sdfg.compile()
     z = sdfg(x, y)
 
